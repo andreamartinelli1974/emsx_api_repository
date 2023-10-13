@@ -133,9 +133,9 @@ class SessionEventHandler():
                     errorMessage = msg.getElementAsString("ERROR_MESSAGE")
                     print ("ERROR CODE: %d\tERROR MESSAGE: %s" % (errorCode,errorMessage))
                 elif msg.messageType() == CREATE_ORDER:
-                    emsx_sequence = msg.getElementAsInteger("EMSX_SEQUENCE")
+                    self.emsx_sequence = msg.getElementAsInteger("EMSX_SEQUENCE")
                     message = msg.getElementAsString("MESSAGE")
-                    print ("EMSX_SEQUENCE: %d\tMESSAGE: %s" % (emsx_sequence,message))
+                    print ("EMSX_SEQUENCE: %d\tMESSAGE: %s" % (self.emsx_sequence,message))
 
                 global bEnd
                 bEnd = True
