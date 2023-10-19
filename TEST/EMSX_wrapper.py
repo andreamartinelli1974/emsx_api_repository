@@ -1,38 +1,8 @@
 """
-Name: EMSX_connection.py
+Name: EMSX_wrapper.py
 Class: EMSXconnect
 Author: Andrea Martinelli
 Description: simple wrapper to establish a connection with EMSX
-Last update: 10/13/2023
-
-Class: TradeEMSX
-Author: Andrea Martinelli
-Description: script to create and route orders using EMSX.
-These are the main functions:
-1) createOrder (to create an order and get the EMSX_SEQUENCE)
-2) routeOrder (to send the order to the broker using the EMSX_SEQUENCE as reference)
-*****3) RouteGroupOrder (to send a group of order to the broker)*****
-
-There are other minor functions to check the order status:
-1) getInfo (returns a dictionary with the status of the order)
-2) verifyExecution (returns number of share filled, percentage of requested share filled and
-                    a dictionary with the status of the order)
-
-The inputs are the EMSX connection and a dictionary build with mandatory and optional
- fields like that:
-{
-"ticker": "BBG_Ticker;
-"side" = "BUY/SELL";
-"qty" = integer > 0;
-"ordType" = "MKT" (or other type like limit etc
-"broker" = "broker name"
-"notes" = "custom text to be added to the order (optional)"
-"orderID" = EMSX_SEQUENCE of an order (optional). to be used to get the order info or
-            to route an order created in a different instance of the class
-}
-
-any optional filed must be added at the end of the dictionary using the EMSX field name
-as key and the appropriate value/string as value.
 Last update: 10/17/2023
 """
 
@@ -41,21 +11,10 @@ import time
 import blpapi
 import sys
 
-class RequestError(Exception):
-    """
-    A RequestError is raised when there is a problem with a Bloomberg API response.
-    """
-
-    def __init__(self, value, description):
-        self.value = value
-        self.description = description
-
-    def __str__(self):
-        return self.description + '\n\n' + str(self.value)
 
 class EMSXconnect():
 
-    def __init__(self,server, host='localhost', port=8194, open=True):
+    def __init__(self, server, host='localhost', port=8194, open=True):
         self.active = False
         self.host = host
         self.port = port
@@ -87,76 +46,52 @@ class EMSXconnect():
         self.active = False
         print("EMSX disconnected")
 
-class TradeEMSX:
-    def __init__(self, params, connection):
 
-        self.requestID = None
+class EMSX():
+    def __init__(self, server):
+        self.server = server
+        self._connection = EMSXconnect(self.server)
+
         self.EMSX_TIF = "DAY"
         self.EMSX_HAND_INSTRUCTION = "MAN"
         self.EMSX_ACCOUNT = "EQUITYCM"
         self.pause = 0.01
-        self.eventTimeout = 6000  # timeout(ms) to wait for event
-
-        self._emsx_conn = connection
-
-        if not params:
-            # empty object
-            self.emsx_sequence = None
-
-        elif "orderID" in params:
-            # object filled with previous order info
-            self._inputParams = copy.deepcopy(params)  # (dictionary)
-
-            self.emsx_sequence = self._inputParams["orderID"]
-            self._inputParams.pop("orderID")
-
-            orderInfo = self.getInfo(self.emsx_sequence)
-            self.qty = orderInfo["EMSX_AMOUNT"]
-            self.ordType = orderInfo["EMSX_ORDER_TYPE"]
-            self.side = orderInfo["EMSX_SIDE"]
-            self.ticker = orderInfo["EMSX_TICKER"]
-            self.broker = orderInfo["EMSX_BROKER"]
-            if "EMSX_NOTES" in orderInfo:
-                self.notes = orderInfo["EMSX_NOTES"]
-            else:
-                self.notes = ""
-
-        else:
-            # object filled with user info
-            self._inputParams = copy.deepcopy(params)  # (dictionary)
-
-            self.emsx_sequence = 0
-            self.qty = self._inputParams["qty"]
-            self._inputParams.pop("qty")
-            self.ordType = self._inputParams["ordType"]
-            self._inputParams.pop("ordType")
-            self.side = self._inputParams["side"]
-            self._inputParams.pop("side")
-            self.ticker = self._inputParams["ticker"]
-            self._inputParams.pop("ticker")
-            self.broker = self._inputParams["broker"]
-            self._inputParams.pop("broker")
-            if "notes" in self._inputParams:
-                self.notes = self._inputParams["notes"]
-                self._inputParams.pop("notes")
-            else:
-                self.notes = ""
+        self.eventTimeout = 6000
 
         self.orderDict = dict()
+        self.requestID_list = list()
+        self.requestID = None
+        self.emsx_route_id_list = list()
+        self.emsx_seq_tuple = tuple()
+        self.emsx_sequence = None
+        self._inputParams_list = list()
+        self._inputParams = None
         self.orderInfo = None
         self.routedOrderInfo = None
         self.tradeResponse = None
 
-    def createOrder(self):
-        # send the order request and returns the orderID (EMSX_SEQUENCE)
+    def createOrder(self, params):
+        # object filled with user info
+        self._inputParams = copy.deepcopy(params)  # (dictionary)
+        self.orderDict = {}  # clear the orderDict from previous info
 
-        # fill the orderDict
-        self.orderDict["EMSX_TICKER"] = self.ticker
-        self.orderDict["EMSX_AMOUNT"] = self.qty
-        self.orderDict["EMSX_ORDER_TYPE"] = self.ordType
-        self.orderDict["EMSX_SIDE"] = self.side
-        self.orderDict["EMSX_BROKER"] = self.broker
-        self.orderDict["EMSX_NOTES"] = self.notes
+        self.emsx_sequence = 0
+        self.orderDict["EMSX_AMOUNT"] = self._inputParams["qty"]
+        self._inputParams.pop("qty")
+        self.orderDict["EMSX_ORDER_TYPE"] = self._inputParams["ordType"]
+        self._inputParams.pop("ordType")
+        self.orderDict["EMSX_SIDE"] = self._inputParams["side"]
+        self._inputParams.pop("side")
+        self.orderDict["EMSX_TICKER"] = self._inputParams["ticker"]
+        self._inputParams.pop("ticker")
+        self.orderDict["EMSX_BROKER"] = self._inputParams["broker"]
+        self._inputParams.pop("broker")
+        if "notes" in self._inputParams:
+            self.orderDict["EMSX_NOTES"] = self._inputParams["notes"]
+            self._inputParams.pop("notes")
+        else:
+            self.orderDict["EMSX_NOTES"] = ""
+
         self.orderDict["EMSX_TIF"] = self.EMSX_TIF
         self.orderDict["EMSX_HAND_INSTRUCTION"] = self.EMSX_HAND_INSTRUCTION
         self.orderDict["EMSX_ACCOUNT"] = self.EMSX_ACCOUNT
@@ -166,7 +101,7 @@ class TradeEMSX:
                 self.orderDict[key] = self._inputParams[key]
 
         # create the request and send it
-        request = self._emsx_conn.service.createRequest("CreateOrder")
+        request = self._connection.service.createRequest("CreateOrder")
 
         for key in self.orderDict:
             value = self.orderDict[key]
@@ -174,17 +109,17 @@ class TradeEMSX:
 
         self.requestID = blpapi.CorrelationId()
 
-        self._emsx_conn.session.sendRequest(request, correlationId=self.requestID)
+        self._connection.session.sendRequest(request, correlationId=self.requestID)
 
-        print("CreateOrder request sent for " + self.ticker)
+        # print("CreateOrder request sent for " + self.orderDict["EMSX_TICKER"])
 
         # get the response
         flag = True
         counter = 0
         while flag:
             counter += 1
-            #print(str(counter))
-            event = self._emsx_conn.session.tryNextEvent()
+            # print(str(counter))
+            event = self._connection.session.tryNextEvent()
             if event is not None:
                 for msg in event:
                     if msg.correlationIds()[0].value() == self.requestID.value():
@@ -193,11 +128,12 @@ class TradeEMSX:
                             errorCode = msg.getElementAsInteger("ERROR_CODE")
                             errorMessage = msg.getElementAsString("ERROR_MESSAGE")
                             print("ERROR CODE: %d\tERROR MESSAGE: %s" % (errorCode, errorMessage))
+                            self.emsx_sequence = errorMessage
                             flag = False
                         elif msg.messageType() == blpapi.Name("CreateOrder"):
                             self.emsx_sequence = msg.getElementAsInteger("EMSX_SEQUENCE")
                             message = msg.getElementAsString("MESSAGE")
-                            print("EMSX_SEQUENCE: %d\tMESSAGE: %s" % (self.emsx_sequence, message))
+                            # print("EMSX_SEQUENCE: %d\tMESSAGE: %s" % (self.emsx_sequence, message))
                             flag = False
 
             time.sleep(self.pause)
@@ -205,28 +141,95 @@ class TradeEMSX:
                 print("Order not Confirmed")
                 flag = False
 
-        self.orderDict = {}
         return self.emsx_sequence
 
+    def createGroupOrder(self,param_list):
+
+        self._inputParams_list = copy.deepcopy(param_list)
+        for param in self._inputParams_list:
+            self.orderDict = {}  # clear the orderDict from previous info
+
+            self.emsx_sequence = 0
+            self.orderDict["EMSX_AMOUNT"] = param["qty"]
+            param.pop("qty")
+            self.orderDict["EMSX_ORDER_TYPE"] = param["ordType"]
+            param.pop("ordType")
+            self.orderDict["EMSX_SIDE"] = param["side"]
+            param.pop("side")
+            self.orderDict["EMSX_TICKER"] = param["ticker"]
+            param.pop("ticker")
+            self.orderDict["EMSX_BROKER"] = param["broker"]
+            param.pop("broker")
+            if "notes" in param:
+                self.orderDict["EMSX_NOTES"] = param["notes"]
+                param.pop("notes")
+            else:
+                self.orderDict["EMSX_NOTES"] = ""
+
+            self.orderDict["EMSX_TIF"] = self.EMSX_TIF
+            self.orderDict["EMSX_HAND_INSTRUCTION"] = self.EMSX_HAND_INSTRUCTION
+            self.orderDict["EMSX_ACCOUNT"] = self.EMSX_ACCOUNT
+
+            if param:
+                for key in param:
+                    self.orderDict[key] = param[key]
+
+            # create the request and send it
+            request = self._connection.service.createRequest("CreateOrder")
+
+            for key in self.orderDict:
+                value = self.orderDict[key]
+                request.set(key, value)
+
+            self.requestID = blpapi.CorrelationId()
+
+            self._connection.session.sendRequest(request, correlationId=self.requestID)
+
+            self.requestID_list.append(self.requestID.value())
+
+        # get the response
+        flag = True
+        counter = 0
+        while flag:
+            counter += 1
+            # print(str(counter))
+            event = self._connection.session.tryNextEvent()
+            if event is not None:
+                for msg in event:
+                    if msg.correlationIds()[0].value() in self.requestID_list:
+
+                        if msg.messageType() == blpapi.Name("ErrorInfo"):
+                            errorCode = msg.getElementAsInteger("ERROR_CODE")
+                            errorMessage = msg.getElementAsString("ERROR_MESSAGE")
+                            print("ERROR CODE: %d\tERROR MESSAGE: %s" % (errorCode, errorMessage))
+                            self.emsx_seq_tuple = self.emsx_seq_tuple + (errorMessage,)
+
+                        elif msg.messageType() == blpapi.Name("CreateOrder"):
+                            self.emsx_seq_tuple = self.emsx_seq_tuple + (msg.getElementAsInteger("EMSX_SEQUENCE"),)
+                            message = msg.getElementAsString("MESSAGE")
+                            # print("EMSX_SEQUENCE: %d\tMESSAGE: %s" % (self.emsx_sequence, message))
+
+                        if len(self.emsx_seq_tuple) == len(self.requestID_list):
+                            flag = False
+
+            time.sleep(self.pause)
+            if counter > self.eventTimeout:
+                print("Some orders not confirmed before eventTimeout")
+                flag = False
+
+        return self.emsx_seq_tuple
     def routeOrder(self):
-        # route the order stored in the object or another order if orderId is provided
+        # route the order stored in the object
         # fill the orderDict
         self.orderDict["EMSX_SEQUENCE"] = self.emsx_sequence
-        self.orderDict["EMSX_TICKER"] = self.ticker
-        self.orderDict["EMSX_AMOUNT"] = self.qty
-        self.orderDict["EMSX_BROKER"] = self.broker
-        self.orderDict["EMSX_ORDER_TYPE"] = self.ordType
-        self.orderDict["EMSX_TIF"] = self.EMSX_TIF
-        self.orderDict["EMSX_HAND_INSTRUCTION"] = self.EMSX_HAND_INSTRUCTION
-        self.orderDict["EMSX_ACCOUNT"] = self.EMSX_ACCOUNT
-        self.orderDict["EMSX_NOTES"] = self.notes
+        self.orderDict.pop("EMSX_SIDE")
 
         if self._inputParams:
             for key in self._inputParams:
                 self.orderDict[key] = self._inputParams[key]
 
         # create the request and send it
-        request = self._emsx_conn.service.createRequest("RouteEx")
+        request = self._connection.service.createRequest("RouteEx")
 
         for key in self.orderDict:
             value = self.orderDict[key]
@@ -234,17 +237,17 @@ class TradeEMSX:
 
         self.requestID = blpapi.CorrelationId()
 
-        self._emsx_conn.session.sendRequest(request, correlationId=self.requestID)
+        self._connection.session.sendRequest(request, correlationId=self.requestID)
 
-        print("RouteOrder request sent for " + self.ticker)
+        print("RouteOrder request sent for " + self.orderDict["EMSX_TICKER"])
 
         # get the response
         flag = True
         counter = 0
         while flag:
             counter += 1
-            #print(str(counter))
-            event = self._emsx_conn.session.tryNextEvent()
+            # print(str(counter))
+            event = self._connection.session.tryNextEvent()
             if event is not None:
                 for msg in event:
                     if msg.correlationIds()[0].value() == self.requestID.value():
@@ -266,20 +269,93 @@ class TradeEMSX:
                 print("Order not Confirmed")
                 flag = False
 
-        self.orderDict = {}
         return self.emsx_route_id
+
+    def routeGroupOrder(self, amountPerc = 100):
+        # create the request
+        request = self._connection.service.createRequest("GroupRouteEx")
+
+        for orderID in self.emsx_seq_tuple:
+            if type(orderID) == int:
+                request.append("EMSX_SEQUENCE", orderID)
+
+        request.set("EMSX_AMOUNT_PERCENT", amountPerc)
+        request.set("EMSX_BROKER",self.orderDict["EMSX_BROKER"])
+
+        # must be included but are meaningless, because the real info are automately retrived from the orders
+        request.set("EMSX_HAND_INSTRUCTION", self.orderDict["EMSX_HAND_INSTRUCTION"])
+        request.set("EMSX_ORDER_TYPE", self.orderDict["EMSX_ORDER_TYPE"])
+        request.set("EMSX_TICKER", "XOM US Equity")
+        request.set("EMSX_TIF", "DAY")
+
+        self.requestID = blpapi.CorrelationId()
+
+        self._connection.session.sendRequest(request, correlationId=self.requestID)
+
+        print("RouteGroupOrder request sent")
+
+        # get the response
+        flag = True
+        counter = 0
+        while flag:
+            counter += 1
+            # print(str(counter))
+            event = self._connection.session.tryNextEvent()
+            if event is not None:
+                for msg in event:
+                    if msg.correlationIds()[0].value() == self.requestID.value():
+
+                        if msg.messageType() == blpapi.Name("ErrorInfo"):
+                            errorCode = msg.getElementAsInteger("ERROR_CODE")
+                            errorMessage = msg.getElementAsString("ERROR_MESSAGE")
+                            print("ERROR CODE: %d\tERROR MESSAGE: %s" % (errorCode, errorMessage))
+                            flag = False
+                        elif msg.messageType() == blpapi.Name("GroupRouteEx"):
+                            if (msg.hasElement("EMSX_SUCCESS_ROUTES")):
+                                success = msg.getElement("EMSX_SUCCESS_ROUTES")
+
+                                nV = success.numValues()
+
+                                for i in range(0, nV):
+                                    e = success.getValueAsElement(i)
+                                    sq = e.getElementAsInteger("EMSX_SEQUENCE")
+                                    rid = e.getElementAsInteger("EMSX_ROUTE_ID")
+
+                                    print("SUCCESS: %d,%d" % (sq, rid))
+                                    self.emsx_route_id_list.append(rid)
+                                    flag = False
+
+                            if (msg.hasElement("EMSX_FAILED_ROUTES")):
+                                failed = msg.getElement("EMSX_FAILED_ROUTES")
+
+                                nV = failed.numValues()
+
+                                for i in range(0, nV):
+                                    e = failed.getValueAsElement(i)
+                                    sq = e.getElementAsInteger("EMSX_SEQUENCE")
+
+                                    print("FAILED: %d" % (sq))
+                                    self.emsx_route_id_list.append("not routed")
+                                    flag = False
+
+            time.sleep(self.pause)
+            if counter > self.eventTimeout:
+                print("Order not Confirmed")
+                flag = False
+
+        return self.emsx_route_id_list
 
     def getInfo(self, orderID=None):
         if orderID is not None:
             self.emsx_sequence = orderID
 
         # create the request and send it
-        request = self._emsx_conn.service.createRequest("OrderInfo")
+        request = self._connection.service.createRequest("OrderInfo")
         request.set("EMSX_SEQUENCE",self.emsx_sequence)
 
         self.requestID = blpapi.CorrelationId()
 
-        self._emsx_conn.session.sendRequest(request, correlationId=self.requestID)
+        self._connection.session.sendRequest(request, correlationId=self.requestID)
 
         print("OrderInfo request sent")
 
@@ -290,7 +366,7 @@ class TradeEMSX:
         while flag:
             counter += 1
             # print(str(counter))
-            event = self._emsx_conn.session.tryNextEvent()
+            event = self._connection.session.tryNextEvent()
             if event is not None:
                 for msg in event:
                     if msg.correlationIds()[0].value() == self.requestID.value():
@@ -349,9 +425,6 @@ class TradeEMSX:
             filled_qty = int(orderInfo["EMSX_FILLED"])
             filled_perc = filled_qty/orderInfo["EMSX_AMOUNT"]
 
-
-
         return filled_qty, filled_perc, orderInfo
-
-
-
+    def closeConnection(self):
+        self._connection.close()

@@ -67,13 +67,13 @@ class SessionEventHandler():
                 request = service.createRequest("GroupRouteEx")
 
                 # Multiple order numbers can be added
-                request.append("EMSX_SEQUENCE", 4116143) 
-                request.append("EMSX_SEQUENCE", 4116144) 
-                request.append("EMSX_SEQUENCE", 4116145) 
+                request.append("EMSX_SEQUENCE", 5156814)
+                request.append("EMSX_SEQUENCE", 5156815)
+                request.append("EMSX_SEQUENCE", 5156816)
 
                 # The fields below are mandatory
                 request.set("EMSX_AMOUNT_PERCENT", 50)  # Note the amount here is %age of order amount
-                request.set("EMSX_BROKER", "BB");
+                request.set("EMSX_BROKER", "BMTB")
                 
                 # For GroupRoute, the below values need to be added, but are taken 
                 # from the original order when the route is created.
@@ -115,18 +115,20 @@ class SessionEventHandler():
                 '''
                 
                 # Add the Route Ref ID values
+                """
                 routeRefIDPairs = request.getElement("EMSX_ROUTE_REF_ID_PAIRS")
                 route1 = routeRefIDPairs.appendElement()
                 route1.setElement("EMSX_ROUTE_REF_ID","MyRouteRef1")
-                route1.setElement("EMSX_SEQUENCE",4116143)
+                route1.setElement("EMSX_SEQUENCE",5156814)
                 
                 route2 = routeRefIDPairs.appendElement();
                 route2.setElement("EMSX_ROUTE_REF_ID","MyRouteRef2")
-                route2.setElement("EMSX_SEQUENCE",4116144)
+                route2.setElement("EMSX_SEQUENCE",5156815)
                 
                 route3 = routeRefIDPairs.appendElement()
                 route3.setElement("EMSX_ROUTE_REF_ID","MyRouteRef3")
-                route3.setElement("EMSX_SEQUENCE",4116145)
+                route3.setElement("EMSX_SEQUENCE",5156816)
+                """
                 
                 # Below we establish the strategy details. Strategy details
                 # are common across all orders in a GroupRoute operation.
